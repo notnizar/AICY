@@ -2,6 +2,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### News API
+
+Set `FREENEWS_API_KEY` in your environment to enable live news data for `/api/news` and the news lookup used by the analysis flow.
+
 First, run the development server:
 
 ```bash

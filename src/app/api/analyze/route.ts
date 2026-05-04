@@ -18,8 +18,8 @@ export async function POST(req: Request) {
     const geminiKey = process.env.GEMINI_API_KEY;
     const visionKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
 
-    if (!apiUser || !apiSecret || !geminiKey) {
-      return NextResponse.json({ error: "API keys not configured. Please add SIGHTENGINE_API_USER, SIGHTENGINE_API_SECRET, and GEMINI_API_KEY." }, { status: 500 });
+    if (!geminiKey) {
+      return NextResponse.json({ error: "GEMINI_API_KEY is not configured." }, { status: 500 });
     }
 
     const formData = await req.formData();
@@ -37,8 +37,8 @@ export async function POST(req: Request) {
     }
 
     const geminiHistory = chatHistory.map((m: any) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.text }]
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.text }]
     }));
 
     const isVideo = file ? file.type.startsWith("video/") : false;
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     // Layer 4: Deepfake & Pixel AI Detection (Sightengine)
     // ---------------------------------------------------------
     const sightenginePromise = (async () => {
-        if (!file || !buffer) return {};
+      if (!file || !buffer || !apiUser || !apiSecret) return { skipped: true };
         const sightengineData = new FormData();
         const fileBlob = new Blob([buffer], { type: file.type });
         sightengineData.append("media", fileBlob, file.name);
@@ -103,12 +103,16 @@ export async function POST(req: Request) {
           sightengineData.append("models", "genai");
         }
 
-        const response = await fetch(apiUrl, { method: "POST", body: sightengineData });
-        const data = await response.json();
-        if (!response.ok || data.status === "failure") {
-          throw new Error(data.error?.message || "Detection API error");
+        try {
+          const response = await fetch(apiUrl, { method: "POST", body: sightengineData });
+          const data = await response.json();
+          if (!response.ok || data.status === "failure") {
+            return { error: data.error?.message || "Detection API error", status: data.status };
+          }
+          return data;
+        } catch (error: any) {
+          return { error: error?.message || "Detection API error" };
         }
-        return data;
     })();
 
     const [webDetectionData, sightengineData] = await Promise.all([visionPromise, sightenginePromise]);
@@ -119,7 +123,7 @@ export async function POST(req: Request) {
     const geminiPromise = (async () => {
         const genAI = new GoogleGenerativeAI(geminiKey);
         const fileManager = new GoogleAIFileManager(geminiKey);
-        let geminiContent: any[] = [];
+        const geminiContent: any[] = [];
 
         if (text) {
             geminiContent.push(text);
@@ -158,6 +162,8 @@ export async function POST(req: Request) {
             }]
           }],
           systemInstruction: `You are a conversational Truth Verification Assistant. You can analyze images, chat naturally, and use searchWorldwideNews to fact-check events or retrieve news.
+          When the user writes in Arabic, respond in Arabic.
+          If searchWorldwideNews does not find relevant articles, explain that briefly in the same language and suggest trying a different query.
           
 You MUST ALWAYS return your response as a JSON object with this exact structure:
 {
@@ -198,22 +204,44 @@ You MUST ALWAYS return your response as a JSON object with this exact structure:
         if (functionCall && functionCall.name === "searchWorldwideNews") {
             const query = (functionCall.args as any).query;
             let newsContext: any = {};
-            const newsKey = process.env.NEWSDATA_API_KEY;
+          const newsKey = process.env.FREENEWS_API_KEY;
+
+          const fetchFallbackNews = async () => {
+            const fallbackUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en&gl=US&ceid=US:en`;
+            const fallbackRes = await fetch(fallbackUrl, { cache: "no-store" });
+            if (!fallbackRes.ok) return [];
+
+            const xml = await fallbackRes.text();
+            const items = xml.match(/<item>[\s\S]*?<\/item>/g) ?? [];
+            return items.slice(0, 3).map((item) => ({
+              title: item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/)?.[1] ?? item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/)?.[2] ?? "News",
+              description: item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>|<description>(.*?)<\/description>/)?.[1] ?? item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>|<description>(.*?)<\/description>/)?.[2] ?? "No description available.",
+              date: item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] ?? undefined,
+            }));
+          };
             
             if (newsKey) {
                 try {
-                    const apiRes = await fetch(`https://newsdata.io/api/1/news?apikey=${newsKey}&language=en&q=${encodeURIComponent(query)}`);
+              const apiRes = await fetch(`https://api.freenewsapi.io/v1/news?language=en&q=${encodeURIComponent(query)}&apikey=${encodeURIComponent(newsKey)}`);
                     const data = await apiRes.json();
-                    if (data.results && data.results.length > 0) {
-                        newsContext = data.results.slice(0, 3).map((n:any) => ({ title: n.title, description: n.description, date: n.pubDate }));
+              const items = data.news ?? data.articles ?? data.results ?? [];
+              if (Array.isArray(items) && items.length > 0) {
+                newsContext = items.slice(0, 3).map((n:any) => ({
+                  title: n.title,
+                  description: n.description || n.summary,
+                  date: n.pubDate || n.publishedAt || n.date
+                }));
                     } else {
-                        newsContext = { message: "No relevant news found for this query." };
+                  const fallbackNews = await fetchFallbackNews();
+                  newsContext = fallbackNews.length > 0 ? fallbackNews : { message: "لم أجد أخبارًا حديثة ومناسبة لهذا الاستعلام الآن." };
                     }
                 } catch (e) {
-                    newsContext = { error: "Failed to fetch news from NewsData.io" };
+              const fallbackNews = await fetchFallbackNews();
+              newsContext = fallbackNews.length > 0 ? fallbackNews : { message: "تعذر جلب الأخبار الآن، لكن يمكنك المحاولة لاحقًا." };
                 }
             } else {
-                newsContext = { error: "NEWSDATA_API_KEY is not configured on the server." };
+            const fallbackNews = await fetchFallbackNews();
+            newsContext = fallbackNews.length > 0 ? fallbackNews : { message: "تعذر جلب الأخبار الآن، لكن يمكنك المحاولة لاحقًا." };
             }
             
             result = await chat.sendMessage([{
@@ -247,6 +275,22 @@ You MUST ALWAYS return your response as a JSON object with this exact structure:
 
     const geminiData = await geminiPromise;
 
+    const inferFallbackVerdict = (analysisText: string) => {
+      const normalized = analysisText.toLowerCase();
+      const aiSignals = ["ai-generated", "synthetic", "generated by ai", "artificial", "مولد بالذكاء الاصطناعي", "ذكاء اصطناعي", "اصطناعي"];
+      const realSignals = ["real", "authentic", "genuine", "original", "حقيقي", "أصلي", "موثوق"];
+
+      if (aiSignals.some((signal) => normalized.includes(signal))) {
+        return { verdict: "AI-Generated" as const, confidence: 78 };
+      }
+
+      if (realSignals.some((signal) => normalized.includes(signal))) {
+        return { verdict: "Real" as const, confidence: 72 };
+      }
+
+      return { verdict: "Unknown" as const, confidence: 50 };
+    };
+
     // If there is no file and no deep analysis was returned, just return the text
     if (!file && !geminiData.analysis) {
         return NextResponse.json({ text: geminiData.text, result: null });
@@ -268,9 +312,13 @@ You MUST ALWAYS return your response as a JSON object with this exact structure:
     let isAi = false;
     let confidenceScore = 0;
     let highestGenerator = "";
+    const sightengineUnavailable = !!(file && (sightengineData as any)?.error || (sightengineData as any)?.skipped);
+    const fallbackVerdict = file && sightengineUnavailable ? inferFallbackVerdict(geminiData.text || "") : null;
     
     if (file) {
-        if (isVideo) {
+      if (sightengineUnavailable) {
+        confidenceScore = (fallbackVerdict?.confidence || 50) / 100;
+      } else if (isVideo) {
             if (sightengineData.data && sightengineData.data.frames) {
                 let maxAiScore = 0;
                 for (const frame of sightengineData.data.frames) {
@@ -296,7 +344,7 @@ You MUST ALWAYS return your response as a JSON object with this exact structure:
     
     isAi = confidenceScore >= 0.5;
     const confidencePercentage = Math.round(confidenceScore * 100);
-    const verdict = !file ? "Unknown" : (factCheckData.is_recycled ? "Recycled" : (isAi ? "AI-Generated" : "Real"));
+    const verdict = !file ? "Unknown" : (factCheckData.is_recycled ? "Recycled" : (sightengineUnavailable ? (fallbackVerdict?.verdict || "Unknown") : (isAi ? "AI-Generated" : "Real")));
     
     const formatGenName = (name: string) => name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const specificGeneratorText = highestGenerator 
@@ -306,6 +354,12 @@ You MUST ALWAYS return your response as a JSON object with this exact structure:
     let explanation = "";
     if (!file) {
         explanation = `Analyzed the provided text claim. Review the Information Fact-Check section below for verification results from NewsData.io.`;
+    } else if (sightengineUnavailable) {
+      explanation = fallbackVerdict?.verdict === "AI-Generated"
+        ? `The external deepfake service is unavailable, so I used a Gemini-based fallback review. The image looks likely AI-generated, but this is a best-effort estimate.`
+        : fallbackVerdict?.verdict === "Real"
+        ? `The external deepfake service is unavailable, so I used a Gemini-based fallback review. The image looks likely real, but this is a best-effort estimate.`
+        : `The external deepfake service is unavailable, so I could not make a confident AI-vs-real decision. Please verify the Sightengine credentials or try again later.`;
     } else if (confidencePercentage >= 90) {
         explanation = `Layer 4 (Deepfake Detection) found overwhelming mathematical evidence (${confidencePercentage}% probability) that this media was synthetically generated.${specificGeneratorText}`;
     } else if (confidencePercentage >= 70) {

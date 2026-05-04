@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { UploadZone } from "@/components/UploadZone";
 import { AnalysisResult, type AnalysisData } from "@/components/AnalysisResult";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -52,8 +53,8 @@ export default function Home() {
       if (file) formData.append("file", file);
       if (text) formData.append("text", text);
       
-      // Send chat history (excluding file URLs to save bandwidth)
-      const historyContext = messages.map(m => ({ role: m.role, text: m.text }));
+      // Send chat history (include the just-sent user message first)
+      const historyContext = [{ role: "user", text }, ...messages.map(m => ({ role: m.role, text: m.text }))];
       formData.append("history", JSON.stringify(historyContext));
 
       const response = await fetch("/api/analyze", {
@@ -115,7 +116,7 @@ export default function Home() {
         refreshTrigger={historyTrigger} 
       />
       <SidebarInset className="flex flex-col h-full bg-background overflow-hidden relative">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b-0 px-4 absolute top-0 w-full z-10 bg-gradient-to-b from-background to-transparent">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b-0 px-4 absolute top-0 w-full z-10 bg-linear-to-b from-background to-transparent">
           <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
         </header>
         
@@ -131,7 +132,7 @@ export default function Home() {
                           <div className={`flex flex-col max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
                               {msg.fileUrl && (
                                   <div className="mb-3 rounded-2xl overflow-hidden border border-border/50 max-w-xs">
-                                      <img src={msg.fileUrl} alt="uploaded" className="w-full h-auto object-cover" />
+                                  <Image src={msg.fileUrl} alt="uploaded" width={800} height={600} unoptimized className="w-full h-auto object-cover" />
                                   </div>
                               )}
                               {msg.text && (
@@ -155,9 +156,9 @@ export default function Home() {
                           </div>
                           <div className="flex flex-col items-start max-w-[85%]">
                               <div className="px-5 py-4 rounded-2xl bg-secondary/30 border border-border/50 rounded-tl-sm flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce" style={{ animationDelay: "0ms" }}></div>
-                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce [animation-delay:0ms]"></div>
+                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce [animation-delay:150ms]"></div>
+                                  <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce [animation-delay:300ms]"></div>
                               </div>
                           </div>
                       </div>
@@ -165,8 +166,8 @@ export default function Home() {
               </div>
             ) : (
               <div className="m-auto flex flex-col items-center justify-center text-center space-y-6 animate-in fade-in duration-700 w-full">
-                 <div className="bg-gradient-to-br from-primary/20 to-secondary/20 p-6 rounded-full mb-4 ring-1 ring-border/50 shadow-2xl shadow-primary/10">
-                   <h1 className="text-5xl md:text-6xl font-semibold bg-gradient-to-br from-foreground to-foreground/60 bg-clip-text text-transparent tracking-tight">
+                 <div className="bg-linear-to-br from-primary/20 to-secondary/20 p-6 rounded-full mb-4 ring-1 ring-border/50 shadow-2xl shadow-primary/10">
+                   <h1 className="text-5xl md:text-6xl font-semibold bg-linear-to-br from-foreground to-foreground/60 bg-clip-text text-transparent tracking-tight">
                      Hello, User
                    </h1>
                  </div>

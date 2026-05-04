@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from "react";
 import { Plus, Send, Loader2, X } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -55,18 +56,33 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
         <div className="absolute bottom-[calc(100%+16px)] left-0 bg-sidebar/80 p-2 rounded-2xl border border-border backdrop-blur-sm shadow-xl flex items-center gap-4 animate-in slide-in-from-bottom-2 duration-300">
           <div className="relative">
             {selectedFile?.type.startsWith("video/") ? (
-              <video src={preview} className="w-20 h-20 object-cover rounded-lg border border-border/50" />
+              <video
+                src={preview}
+                title={selectedFile?.name ?? "Selected video preview"}
+                className="w-20 h-20 object-cover rounded-lg border border-border/50"
+              />
             ) : (
-              <img src={preview} className="w-20 h-20 object-cover rounded-lg border border-border/50" />
+              <Image
+                src={preview}
+                alt={selectedFile?.name ? `Preview of ${selectedFile.name}` : "Selected image preview"}
+                title={selectedFile?.name ?? "Selected image preview"}
+                width={80}
+                height={80}
+                unoptimized
+                className="w-20 h-20 object-cover rounded-lg border border-border/50"
+              />
             )}
-            <button 
+            <button
+              type="button"
+              aria-label="Remove selected file"
+              title="Remove selected file"
               onClick={() => { setPreview(null); setSelectedFile(null); }}
               className="absolute -top-2 -right-2 bg-muted-foreground/30 hover:bg-muted-foreground/60 backdrop-blur-md text-foreground rounded-full p-1 transition-colors"
             >
               <X className="w-3 h-3" />
             </button>
           </div>
-          <div className="text-sm text-muted-foreground mr-4 font-medium truncate max-w-[200px]">
+          <div className="text-sm text-muted-foreground mr-4 font-medium truncate max-w-50">
             {selectedFile?.name}
           </div>
         </div>
@@ -79,21 +95,30 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isAnalyzing}
-          className="min-h-[50px] max-h-[200px] border-0 focus-visible:ring-0 resize-none bg-transparent py-3 px-4 text-base placeholder:text-muted-foreground"
+          className="min-h-12.5 max-h-50 border-0 focus-visible:ring-0 resize-none bg-transparent py-3 px-4 text-base placeholder:text-muted-foreground"
           rows={1}
         />
         <div className="flex items-center justify-between px-2 pt-2 pb-1">
           <div className="flex items-center gap-1">
-            <input 
+            <label htmlFor="upload-media-input" className="sr-only">
+              Upload image or video
+            </label>
+            <input
+              id="upload-media-input"
               type="file" 
               ref={fileInputRef} 
               className="hidden" 
+              title="Upload image or video"
+              aria-label="Upload image or video"
               accept="image/*,video/mp4,video/webm,video/quicktime"
               onChange={onFileInput} 
             />
             <Button 
               variant="ghost" 
               size="icon" 
+              type="button"
+              aria-label="Choose file"
+              title="Choose file"
               className="rounded-full h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-secondary"
               onClick={() => fileInputRef.current?.click()}
               disabled={isAnalyzing}
@@ -105,6 +130,9 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
             <Button 
               variant="ghost" 
               size="icon" 
+              type="button"
+              aria-label={isAnalyzing ? "Analyzing" : "Submit"}
+              title={isAnalyzing ? "Analyzing" : "Submit"}
               className="rounded-full h-10 w-10 text-foreground bg-primary/10 hover:bg-primary/20 hover:text-primary transition-colors disabled:opacity-50"
               disabled={isAnalyzing || (!selectedFile && !prompt.trim())}
               onClick={handleSubmit}
